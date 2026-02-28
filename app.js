@@ -3,6 +3,8 @@ const progress = document.querySelector("#progress");
 const hintBtn = document.querySelector("#hintBtn");
 const primaryBtn = document.querySelector("#primaryBtn");
 
+const GUESSES_ENDPOINT = "/api/palpites";
+
 const STATE = {
   step: 0,
   digits: [],
@@ -18,6 +20,44 @@ function setProgress(text) {
 
 function show(element, visible) {
   element.hidden = !visible;
+}
+
+function shuffleArray(items) {
+  const copy = [...items];
+
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[randomIndex]] = [copy[randomIndex], copy[index]];
+  }
+
+  return copy;
+}
+
+async function saveGuessesToProject(players) {
+  const response = await fetch(GUESSES_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(players),
+  });
+
+  let payload = null;
+
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const message = payload && payload.error
+      ? payload.error
+      : "Nao foi possivel salvar os palpites no arquivo.";
+    throw new Error(message);
+  }
+
+  return payload;
 }
 
 function resetHints() {
@@ -38,7 +78,14 @@ hintBtn.addEventListener("click", () => {
 
 primaryBtn.addEventListener("click", () => {
   if (typeof STATE.primaryAction === "function") {
-    STATE.primaryAction();
+    const result = STATE.primaryAction();
+
+    if (result && typeof result.catch === "function") {
+      result.catch(() => {
+        // A propria acao trata os erros visiveis na interface.
+      });
+    }
+
     return;
   }
 
@@ -68,6 +115,8 @@ function render() {
   if (STATE.step === 3) return renderPuzzle3();
   if (STATE.step === 4) return renderSafe();
   if (STATE.step === 5) return renderReveal();
+
+  return renderIntro();
 }
 
 function renderIntro() {
@@ -75,18 +124,18 @@ function renderIntro() {
 
   screen.innerHTML = `
     <div class="card">
-      <h1 class="h1">Missão: destravar a caixa do bebê</h1>
+      <h1 class="h1">Miss\u00E3o: destravar a caixa do beb\u00EA</h1>
       <p class="p">
-        Você está no zoológico. Existem 3 desafios rápidos e cada um libera
-        <b>1 dígito</b>. No fim, digite o PIN na caixa-forte para revelar o segredo,
-        mas antes precisamos registrar quem está jogando.
+        Voc\u00EA est\u00E1 no zool\u00F3gico. Existem 3 desafios r\u00E1pidos e cada um libera
+        <b>1 d\u00EDgito</b>. No fim, digite o PIN na caixa-forte para revelar o segredo,
+        mas antes precisamos registrar quem est\u00E1 jogando.
       </p>
 
       <div class="form-box">
-        <h3>Quem está jogando?</h3>
-        <p class="p">Escolha quantas pessoas estão participando e preencha os palpites.</p>
+        <h3>Quem est\u00E1 jogando?</h3>
+        <p class="p">Escolha quantas pessoas est\u00E3o participando e preencha os palpites.</p>
 
-        <div class="form-label">Quantas pessoas estão participando?</div>
+        <div class="form-label">Quantas pessoas est\u00E3o participando?</div>
         <div class="people-grid" id="peopleGrid">
           <button type="button" data-qtd="1">Estou sozinho</button>
           ${[2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => `
@@ -114,9 +163,9 @@ function renderIntro() {
   function isIntroComplete() {
     if (!totalPlayers) return false;
 
-    for (let i = 1; i <= totalPlayers; i += 1) {
-      const nameField = document.getElementById(`name_${i}`);
-      const guessField = document.querySelector(`input[name="guess_${i}"]:checked`);
+    for (let player = 1; player <= totalPlayers; player += 1) {
+      const nameField = document.getElementById(`name_${player}`);
+      const guessField = document.querySelector(`input[name="guess_${player}"]:checked`);
       const name = nameField ? nameField.value.trim() : "";
 
       if (!name || !guessField) {
@@ -161,7 +210,7 @@ function renderIntro() {
             autocomplete="name"
           >
 
-          <div class="form-label">Você acha que é:</div>
+          <div class="form-label">Voc\u00EA acha que \u00E9:</div>
           <div class="radio-group">
             <label>
               <input type="radio" name="guess_${playerNumber}" value="Menino">
@@ -206,12 +255,12 @@ function renderIntro() {
   });
 
   show(primaryBtn, true);
-  primaryBtn.textContent = "Começar";
+  primaryBtn.textContent = "Come\u00E7ar";
   primaryBtn.disabled = true;
 
-  STATE.primaryAction = () => {
+  STATE.primaryAction = async () => {
     if (!totalPlayers) {
-      setIntroStatus("Escolha quantas pessoas vão participar para continuar.", true);
+      setIntroStatus("Escolha quantas pessoas v\u00E3o participar para continuar.", true);
       return;
     }
 
@@ -225,9 +274,9 @@ function renderIntro() {
 
     const players = [];
 
-    for (let i = 1; i <= totalPlayers; i += 1) {
-      const nameField = document.getElementById(`name_${i}`);
-      const guessField = document.querySelector(`input[name="guess_${i}"]:checked`);
+    for (let player = 1; player <= totalPlayers; player += 1) {
+      const nameField = document.getElementById(`name_${player}`);
+      const guessField = document.querySelector(`input[name="guess_${player}"]:checked`);
 
       players.push({
         nome: nameField ? nameField.value.trim() : "",
@@ -235,8 +284,20 @@ function renderIntro() {
       });
     }
 
-    localStorage.setItem("palpites_bebe", JSON.stringify(players));
-    go(1);
+    setIntroStatus("Salvando respostas no arquivo...");
+    primaryBtn.disabled = true;
+
+    try {
+      await saveGuessesToProject(players);
+      setIntroStatus("");
+      go(1);
+    } catch {
+      primaryBtn.disabled = false;
+      setIntroStatus(
+        "Nao foi possivel salvar no JSON do projeto. Inicie o servidor com node server.js e abra http://localhost:3000.",
+        true
+      );
+    }
   };
 }
 
@@ -247,7 +308,7 @@ function renderPuzzle1() {
   const pawSpots = [
     { x: 20.4, y: 81.6, label: "Pegada esquerda inferior" },
     { x: 37.2, y: 69.4, label: "Pegada central" },
-    { x: 62.8, y: 84.8, label: "Pegada perto da água" },
+    { x: 62.8, y: 84.8, label: "Pegada perto da agua" },
     { x: 24.7, y: 93.8, label: "Pegada direita inferior" },
   ];
 
@@ -258,13 +319,13 @@ function renderPuzzle1() {
     <div class="grid card">
       <div class="panel">
         <h2 class="h1" style="font-size:20px">Desafio 1 - Rastros do Zoo</h2>
-        <p class="p">Encontre <b>${total}</b> pegadas escondidas no cenário.</p>
-        <div id="hintBox" class="notice">Dica: procure perto da cerca e no chão.</div>
-        <div class="small">Quando achar todas, você ganha o 1º dígito.</div>
+        <p class="p">Encontre <b>${total}</b> pegadas escondidas no cenario.</p>
+        <div id="hintBox" class="notice">Dica: procure perto da cerca e no chao.</div>
+        <div class="small">Quando achar todas, voce ganha o 1o digito.</div>
       </div>
       <div class="stage img-stage">
         <div class="img-wrap">
-          <img src="zoo-bg.png" alt="Cenário do zoológico" />
+          <img src="zoo-bg.png" alt="Cenario do zoologico" />
           <div class="overlay">
             ${pawSpots.map((spot) => `
               <div
@@ -295,7 +356,7 @@ function renderPuzzle1() {
   function unlockDigit() {
     STATE.digits[0] = STATE.pin[0];
     show(primaryBtn, true);
-    primaryBtn.textContent = `Pegou o 1º dígito: ${STATE.digits[0]} - Continuar`;
+    primaryBtn.textContent = `Pegou o 1o digito: ${STATE.digits[0]} - Continuar`;
     show(hintBtn, false);
     clearTimeout(STATE.hintTimer);
   }
@@ -328,15 +389,15 @@ function renderPuzzle1() {
     if (found === total) return;
 
     if (STATE.hintLevel === 0) {
-      hintBox.textContent = "Dica: procure perto da cerca e no chão.";
+      hintBox.textContent = "Dica: procure perto da cerca e no chao.";
     }
 
     if (STATE.hintLevel === 1) {
-      hintBox.textContent = "Dica: duas pegadas estão embaixo e uma está mais alta perto da cerca.";
+      hintBox.textContent = "Dica: duas pegadas estao embaixo e uma esta mais alta perto da cerca.";
     }
 
     if (STATE.hintLevel === 2) {
-      hintBox.textContent = "Dica forte: toque nas áreas marcadas com a pata.";
+      hintBox.textContent = "Dica forte: toque nas areas marcadas com a pata.";
     }
 
     if (STATE.hintLevel >= 3) {
@@ -357,24 +418,31 @@ function renderPuzzle2() {
   setProgress("Etapa 2/4");
   resetHints();
 
+  const tokenOptions = [
+    { zone: "agua", name: "Tartaruga" },
+    { zone: "floresta", name: "Macaco" },
+    { zone: "selva", name: "Tigre" },
+  ];
+  const shuffledTokens = shuffleArray(tokenOptions);
+
   screen.innerHTML = `
     <div class="grid card">
       <div class="panel">
         <h2 class="h1" style="font-size:20px">Desafio 2 - Leve cada animal ao lugar certo</h2>
         <p class="p">Escolha um nome no painel e depois toque no habitat correspondente.</p>
         <div id="hintBox" class="notice">Dica: combine pelo nome.</div>
-        <div class="small">Quando acertar os 3, você ganha o 2º dígito.</div>
+        <div class="small">Quando acertar os 3, voce ganha o 2o digito.</div>
 
         <div class="drags" style="margin-top:10px">
-          <button class="token" type="button" data-zone="agua" data-name="Tartaruga">Tartaruga</button>
-          <button class="token" type="button" data-zone="floresta" data-name="Macaco">Macaco</button>
-          <button class="token" type="button" data-zone="selva" data-name="Tigre">Tigre</button>
+          ${shuffledTokens.map((token) => `
+            <button class="token" type="button" data-zone="${token.zone}" data-name="${token.name}">${token.name}</button>
+          `).join("")}
         </div>
       </div>
 
       <div class="stage img-stage">
         <div class="img-wrap">
-          <img src="habitats-zoo.png" alt="Habitats do zoológico" />
+          <img src="habitats-zoo.png" alt="Habitats do zoologico" />
 
           <div class="overlay">
             <div class="zone" data-zone="agua" style="left:16.5%; top:50%; width:30%; height:80%"></div>
@@ -396,7 +464,7 @@ function renderPuzzle2() {
   function unlockDigit() {
     STATE.digits[1] = STATE.pin[1];
     show(primaryBtn, true);
-    primaryBtn.textContent = `Pegou o 2º dígito: ${STATE.digits[1]} - Continuar`;
+    primaryBtn.textContent = `Pegou o 2o digito: ${STATE.digits[1]} - Continuar`;
     show(hintBtn, false);
     clearTimeout(STATE.hintTimer);
   }
@@ -442,7 +510,7 @@ function renderPuzzle2() {
         }
       } else {
         hintBox.classList.add("error");
-        hintBox.textContent = "Ops - esse não é o habitat certo. Tente outro.";
+        hintBox.textContent = "Ops - esse nao e o habitat certo. Tente outro.";
 
         setTimeout(() => {
           hintBox.classList.remove("error");
@@ -460,7 +528,7 @@ function renderPuzzle2() {
     }
 
     if (STATE.hintLevel === 1) {
-      hintBox.textContent = "Dica: Tartaruga vai na água, Macaco vai na floresta e Tigre vai na selva.";
+      hintBox.textContent = "Dica: Tartaruga vai na agua, Macaco vai na floresta e Tigre vai na selva.";
     }
 
     if (STATE.hintLevel === 2) {
@@ -493,10 +561,11 @@ function renderPuzzle3() {
   resetHints();
 
   const steps = [
-    { id: "unlock", label: "🔓 Abrir o portão da jaula" },
-    { id: "feed", label: "🥩 Dar comida ao tigre" },
-    { id: "record", label: "📸 Registrar o cuidado" },
+    { id: "unlock", label: "\uD83D\uDD13 Abrir o portao da jaula" },
+    { id: "feed", label: "\uD83E\uDD69 Dar comida ao tigre" },
+    { id: "record", label: "\uD83D\uDCF8 Registrar o cuidado" },
   ];
+  const renderedSteps = shuffleArray(steps);
   const correct = ["unlock", "feed", "record"];
   let chosen = [];
   let chosenLabels = [];
@@ -507,17 +576,17 @@ function renderPuzzle3() {
         <h2 class="h1" style="font-size:20px">Desafio 3 - Ajude o tratador a cuidar do tigre!</h2>
         <p class="p">Clique nos itens na ordem correta (3 passos).</p>
         <div id="hintBox" class="notice">Dica: primeiro abra a jaula, depois alimente, depois registre.</div>
-        <div class="small">Quando acertar a sequência, você ganha o 3º dígito.</div>
+        <div class="small">Quando acertar a sequencia, voce ganha o 3o digito.</div>
         <div class="small" style="margin-top:10px">Escolhas: <span id="picked">-</span></div>
       </div>
 
       <div class="stage img-stage">
         <div class="img-wrap">
-          <img src="jaula-leao.png" alt="Recinto do felino" />
+          <img src="Jaula-leao.png" alt="Recinto do felino" />
 
           <div class="overlay">
             <div class="order" style="position:absolute; top:18px; left:18px; right:18px;">
-              ${steps.map((step) => `
+              ${renderedSteps.map((step) => `
                 <button type="button" data-step="${step.id}">${step.label}</button>
               `).join("")}
             </div>
@@ -550,9 +619,9 @@ function renderPuzzle3() {
       if (isCorrect) {
         STATE.digits[2] = STATE.pin[2];
         hintBox.classList.add("ok");
-        hintBox.textContent = "Sequência certa!";
+        hintBox.textContent = "Sequencia certa!";
         show(primaryBtn, true);
-        primaryBtn.textContent = `Pegou o 3º dígito: ${STATE.digits[2]} - Ir para a Caixa-forte`;
+        primaryBtn.textContent = `Pegou o 3o digito: ${STATE.digits[2]} - Ir para a Caixa-forte`;
         show(hintBtn, false);
         clearTimeout(STATE.hintTimer);
         return;
@@ -586,7 +655,7 @@ function renderPuzzle3() {
     }
 
     if (STATE.hintLevel === 2) {
-      hintBox.textContent = "Dica forte: clique nesta ordem: Abrir o portão da jaula, Dar comida ao tigre, Registrar o cuidado.";
+      hintBox.textContent = "Dica forte: clique nesta ordem: Abrir o portao da jaula, Dar comida ao tigre, Registrar o cuidado.";
     }
 
     if (STATE.hintLevel >= 3) {
@@ -597,7 +666,7 @@ function renderPuzzle3() {
         button.disabled = true;
       });
       show(primaryBtn, true);
-      primaryBtn.textContent = `Pegou o 3º dígito: ${STATE.digits[2]} - Ir para a Caixa-forte`;
+      primaryBtn.textContent = `Pegou o 3o digito: ${STATE.digits[2]} - Ir para a Caixa-forte`;
       show(hintBtn, false);
       clearTimeout(STATE.hintTimer);
     }
@@ -616,7 +685,7 @@ function renderSafe() {
   screen.innerHTML = `
     <div class="card">
       <h2 class="h1">Caixa-forte</h2>
-      <p class="p">Você coletou os dígitos: <b>${d1} ${d2} ${d3}</b></p>
+      <p class="p">Voce coletou os digitos: <b>${d1} ${d2} ${d3}</b></p>
 
       <div class="safe">
         <div class="pin">
@@ -624,11 +693,11 @@ function renderSafe() {
           <input inputmode="numeric" maxlength="1" id="p2" />
           <input inputmode="numeric" maxlength="1" id="p3" />
         </div>
-        <div id="msg" class="notice">Digite o código para abrir.</div>
+        <div id="msg" class="notice">Digite o codigo para abrir.</div>
       </div>
 
       <div class="small" style="margin-top:12px">
-        Se errar, é só tentar de novo.
+        Se errar, e so tentar de novo.
       </div>
     </div>
   `;
@@ -655,68 +724,79 @@ function renderSafe() {
     const values = [p1.value, p2.value, p3.value];
     if (values.some((value) => value === "")) return;
 
-    const ok = values.every((value, index) => value === STATE.pin[index]);
+    const isCorrect = values.every((value, index) => value === STATE.pin[index]);
 
-    if (ok) {
+    if (isCorrect) {
       msg.classList.remove("error");
       msg.classList.add("ok");
-      msg.textContent = "Abriu! Preparando a revelação...";
+      msg.textContent = "Abriu! Preparando a revelacao...";
       setTimeout(() => go(5), 700);
       return;
     }
 
     msg.classList.add("error");
     const wrongDigits = [];
+
     values.forEach((value, index) => {
       if (value !== STATE.pin[index]) {
         wrongDigits.push(index + 1);
       }
     });
 
-    msg.textContent = `Quase! O dígito ${wrongDigits.join(" e ")} está errado. Tente de novo.`;
+    msg.textContent = `Quase! O digito ${wrongDigits.join(" e ")} esta errado. Tente de novo.`;
     setTimeout(() => msg.classList.remove("error"), 900);
   }
 }
 
 function renderReveal() {
-  setProgress("Revelação");
+  setProgress("Revelacao");
   show(hintBtn, false);
   show(primaryBtn, false);
 
   screen.innerHTML = `
     <div class="card">
       <h2 class="h1">A caixa abriu...</h2>
-      <p class="p">Momento da revelação.</p>
+      <p class="p">Momento da revelacao.</p>
 
       <div class="revealWrap">
-        <video id="rv" controls playsinline muted preload="auto">
+        <video id="rv" controls playsinline preload="auto">
           <source src="reveal.mp4" type="video/mp4">
         </video>
-        <img id="ri" src="reveal.png" alt="Revelação" class="kenburns" hidden />
+        <img id="ri" src="reveal.png" alt="Revelacao" class="kenburns" hidden />
         <div class="confetti"></div>
       </div>
 
-      <p class="small" style="margin-top:12px">
-        Se o vídeo não carregar, a imagem aparece automaticamente.
+      <p id="revealStatus" class="small" style="margin-top:12px">
+        Tentando iniciar o video com audio.
       </p>
     </div>
   `;
 
   const video = screen.querySelector("#rv");
   const image = screen.querySelector("#ri");
+  const revealStatus = screen.querySelector("#revealStatus");
+
+  video.muted = false;
+  video.defaultMuted = false;
+  video.volume = 1;
 
   function showImageFallback() {
     video.hidden = true;
     image.hidden = false;
+    revealStatus.textContent = "O video nao carregou. A imagem foi exibida automaticamente.";
   }
 
   video.addEventListener("error", showImageFallback);
 
   const playAttempt = video.play();
   if (playAttempt && typeof playAttempt.catch === "function") {
-    playAttempt.catch(() => {
-      // Mantém os controles para reprodução manual.
-    });
+    playAttempt
+      .then(() => {
+        revealStatus.textContent = "O video iniciou automaticamente com audio, se o navegador permitir.";
+      })
+      .catch(() => {
+        revealStatus.textContent = "O navegador bloqueou o autoplay com audio. Use os controles do video para reproduzir.";
+      });
   }
 
   setTimeout(() => {
