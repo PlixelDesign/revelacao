@@ -62,10 +62,7 @@ async function saveGuessesToProject(players) {
 }
 
 function canUseProjectFileSave() {
-  return (
-    window.location.protocol.startsWith("http") &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-  );
+  return window.location.protocol === "http:" || window.location.protocol === "https:";
 }
 
 function saveGuessesToBrowser(players) {
@@ -857,8 +854,11 @@ function renderReveal() {
 
   const video = screen.querySelector("#rv");
   const image = screen.querySelector("#ri");
+  const source = video.querySelector("source");
   const revealStatus = screen.querySelector("#revealStatus");
+  const sourcePath = source ? source.getAttribute("src") : "";
   let imageRevealed = false;
+  let videoReady = false;
 
   video.muted = false;
   video.defaultMuted = false;
@@ -883,19 +883,31 @@ function renderReveal() {
     showRevealImage("O video nao carregou. A imagem foi exibida automaticamente.", true);
   }
 
-  function prepareRevealAfterVideo() {
-    if (imageRevealed) {
+  function markVideoReady() {
+    if (imageRevealed || videoReady) {
       return;
     }
 
+    videoReady = true;
     revealStatus.textContent = "O video carregou. A foto aparecera abaixo quando ele terminar.";
   }
 
+  if (!sourcePath) {
+    showImageFallback();
+    return;
+  }
+
   video.addEventListener("error", showImageFallback);
-  video.addEventListener("loadeddata", prepareRevealAfterVideo, { once: true });
+  if (source) {
+    source.addEventListener("error", showImageFallback);
+  }
+  video.addEventListener("loadedmetadata", markVideoReady, { once: true });
+  video.addEventListener("canplay", markVideoReady, { once: true });
   video.addEventListener("ended", () => {
     showRevealImage("A foto apareceu abaixo do video apos o fim da reproducao.");
   });
+
+  video.load();
 
   const playAttempt = video.play();
   if (playAttempt && typeof playAttempt.catch === "function") {
@@ -907,13 +919,6 @@ function renderReveal() {
         revealStatus.textContent = "O navegador bloqueou o autoplay com audio. Use os controles do video para reproduzir. A foto aparecera abaixo quando o video terminar.";
       });
   }
-
-  setTimeout(() => {
-    const hasVideoSource = video.querySelector("source")?.getAttribute("src");
-    if (!hasVideoSource) {
-      showImageFallback();
-    }
-  }, 600);
 }
 
 function renderHint() {}
