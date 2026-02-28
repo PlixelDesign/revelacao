@@ -100,13 +100,33 @@ function saveGuessesToBrowser(players) {
     ],
   };
 
-  window.localStorage.setItem(LOCAL_GUESSES_KEY, JSON.stringify(nextStore));
+  try {
+    window.localStorage.setItem(LOCAL_GUESSES_KEY, JSON.stringify(nextStore));
 
-  return {
-    ok: true,
-    storage: "localStorage",
-    submissions: nextStore.submissions.length,
-  };
+    return {
+      ok: true,
+      storage: "localStorage",
+      submissions: nextStore.submissions.length,
+    };
+  } catch {
+    try {
+      window.sessionStorage.setItem(LOCAL_GUESSES_KEY, JSON.stringify(nextStore));
+
+      return {
+        ok: true,
+        storage: "sessionStorage",
+        submissions: nextStore.submissions.length,
+      };
+    } catch {
+      STATE.fallbackGuesses = nextStore;
+
+      return {
+        ok: false,
+        storage: "memory",
+        submissions: nextStore.submissions.length,
+      };
+    }
+  }
 }
 
 async function saveGuessesHybrid(players) {
@@ -358,11 +378,8 @@ function renderIntro() {
       setIntroStatus("");
       go(1);
     } catch {
-      primaryBtn.disabled = false;
-      setIntroStatus(
-        "Nao foi possivel salvar as respostas. Verifique se o navegador permite armazenamento local.",
-        true
-      );
+      setIntroStatus("");
+      go(1);
     }
   };
 }
