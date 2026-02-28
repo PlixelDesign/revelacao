@@ -334,6 +334,11 @@ body {
   display: block;
 }
 
+.revealWrap video[hidden],
+.revealWrap img[hidden] {
+  display: none !important;
+}
+
 .kenburns {
   animation: kb 8s ease-in-out infinite alternate;
   transform-origin: center;
