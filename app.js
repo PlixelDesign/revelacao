@@ -858,27 +858,53 @@ function renderReveal() {
   const video = screen.querySelector("#rv");
   const image = screen.querySelector("#ri");
   const revealStatus = screen.querySelector("#revealStatus");
+  let imageRevealed = false;
 
   video.muted = false;
   video.defaultMuted = false;
   video.volume = 1;
 
-  function showImageFallback() {
-    video.hidden = true;
+  function showRevealImage(statusText, hideVideo = false) {
+    if (imageRevealed) {
+      return;
+    }
+
+    imageRevealed = true;
+    if (hideVideo) {
+      video.hidden = true;
+      video.pause();
+    }
+
     image.hidden = false;
-    revealStatus.textContent = "O video nao carregou. A imagem foi exibida automaticamente.";
+    revealStatus.textContent = statusText;
+  }
+
+  function showImageFallback() {
+    showRevealImage("O video nao carregou. A imagem foi exibida automaticamente.", true);
+  }
+
+  function prepareRevealAfterVideo() {
+    if (imageRevealed) {
+      return;
+    }
+
+    revealStatus.textContent = "O video carregou. A foto aparecera abaixo quando ele terminar.";
   }
 
   video.addEventListener("error", showImageFallback);
+  video.addEventListener("loadeddata", prepareRevealAfterVideo, { once: true });
+  video.addEventListener("ended", () => {
+    showRevealImage("A foto apareceu abaixo do video apos o fim da reproducao.");
+  });
 
   const playAttempt = video.play();
   if (playAttempt && typeof playAttempt.catch === "function") {
     playAttempt
       .then(() => {
-        revealStatus.textContent = "O video iniciou automaticamente com audio, se o navegador permitir.";
+        revealStatus.textContent = "O video iniciou automaticamente com audio, se o navegador permitir. A foto aparecera abaixo quando ele terminar.";
       })
       .catch(() => {
-        revealStatus.textContent = "O navegador bloqueou o autoplay com audio. Use os controles do video para reproduzir.";
+        revealStatus.textContent = "O navegador bloqueou o autoplay com audio. Use os controles do video para reproduzir. A foto aparecera abaixo quando o video terminar.";
       });
   }
 
