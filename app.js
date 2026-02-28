@@ -4,6 +4,7 @@ const hintBtn = document.querySelector("#hintBtn");
 const primaryBtn = document.querySelector("#primaryBtn");
 
 const GUESSES_ENDPOINT = "/api/palpites";
+const SHEETS_GUESSES_ENDPOINT = "https://script.google.com/macros/s/AKfycbx6FKXkkEa5KsOxTmn-B_7tmzm6xLau0zKHWBxM7g9_ZcknXktBGP4ZOMFXCc0WbIGj/exec";
 const LOCAL_GUESSES_KEY = "palpites_bebe_local";
 
 const STATE = {
@@ -61,8 +62,41 @@ async function saveGuessesToProject(players) {
   return payload;
 }
 
+async function saveGuessesToSheets(players) {
+  const response = await fetch(SHEETS_GUESSES_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8",
+    },
+    body: JSON.stringify(players),
+  });
+
+  let payload = null;
+
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || !payload || payload.ok !== true) {
+    const message = payload && payload.error
+      ? payload.error
+      : "Nao foi possivel salvar os palpites na planilha.";
+    throw new Error(message);
+  }
+
+  return payload;
+}
+
 function canUseProjectFileSave() {
-  return window.location.protocol === "http:" || window.location.protocol === "https:";
+  const host = window.location.hostname;
+  const isIpv4 = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host);
+
+  return (
+    window.location.protocol.startsWith("http") &&
+    (host === "localhost" || host === "127.0.0.1" || isIpv4)
+  );
 }
 
 function saveGuessesToBrowser(players) {
@@ -127,6 +161,23 @@ function saveGuessesToBrowser(players) {
 }
 
 async function saveGuessesHybrid(players) {
+  try {
+    const payload = await saveGuessesToSheets(players);
+
+    if (canUseProjectFileSave()) {
+      saveGuessesToProject(players).catch(() => {
+        // O envio principal ja foi salvo na planilha.
+      });
+    }
+
+    return {
+      ...payload,
+      storage: "google-sheets",
+    };
+  } catch {
+    // Se a planilha falhar, ainda tentamos os outros meios.
+  }
+
   if (canUseProjectFileSave()) {
     try {
       const payload = await saveGuessesToProject(players);
