@@ -4,6 +4,7 @@ const hintBtn = document.querySelector("#hintBtn");
 const primaryBtn = document.querySelector("#primaryBtn");
 
 const GUESSES_ENDPOINT = "/api/palpites";
+const LOCAL_GUESSES_KEY = "palpites_bebe_local";
 
 const STATE = {
   step: 0,
@@ -58,6 +59,71 @@ async function saveGuessesToProject(players) {
   }
 
   return payload;
+}
+
+function canUseProjectFileSave() {
+  return (
+    window.location.protocol.startsWith("http") &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  );
+}
+
+function saveGuessesToBrowser(players) {
+  let store = {
+    updatedAt: null,
+    submissions: [],
+  };
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_GUESSES_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (parsed && Array.isArray(parsed.submissions)) {
+      store = parsed;
+    }
+  } catch {
+    store = {
+      updatedAt: null,
+      submissions: [],
+    };
+  }
+
+  const savedAt = new Date().toISOString();
+  const nextStore = {
+    updatedAt: savedAt,
+    submissions: [
+      ...store.submissions,
+      {
+        savedAt,
+        players,
+      },
+    ],
+  };
+
+  window.localStorage.setItem(LOCAL_GUESSES_KEY, JSON.stringify(nextStore));
+
+  return {
+    ok: true,
+    storage: "localStorage",
+    submissions: nextStore.submissions.length,
+  };
+}
+
+async function saveGuessesHybrid(players) {
+  if (canUseProjectFileSave()) {
+    try {
+      const payload = await saveGuessesToProject(players);
+
+      return {
+        ...payload,
+        storage: "file",
+      };
+    } catch {
+      // Se a API local falhar, ainda tentamos salvar no navegador.
+    }
+  }
+
+  return saveGuessesToBrowser(players);
 }
 
 function resetHints() {
@@ -284,17 +350,17 @@ function renderIntro() {
       });
     }
 
-    setIntroStatus("Salvando respostas no arquivo...");
+    setIntroStatus("Salvando respostas...");
     primaryBtn.disabled = true;
 
     try {
-      await saveGuessesToProject(players);
+      await saveGuessesHybrid(players);
       setIntroStatus("");
       go(1);
     } catch {
       primaryBtn.disabled = false;
       setIntroStatus(
-        "Nao foi possivel salvar no JSON do projeto. Inicie o servidor com node server.js e abra http://localhost:3000.",
+        "Nao foi possivel salvar as respostas. Verifique se o navegador permite armazenamento local.",
         true
       );
     }
